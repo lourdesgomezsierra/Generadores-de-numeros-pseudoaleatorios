@@ -14,7 +14,7 @@ Aplicación de escritorio en Python para generar 1000 valores pseudoaleatorios c
 ## Instalación
 
 ```bash
-pip install PySide6 matplotlib
+pip install PySide6 matplotlib numpy scipy
 ```
 
 ## Ejecución
@@ -23,4 +23,4 @@ pip install PySide6 matplotlib
 python main.py
 ```
 
-La aplicación usa PySide6 para la interfaz y matplotlib para el histograma integrado. No usa Tkinter.
+La aplicación usa PySide6 para la interfaz, matplotlib para gráficos integrados y SciPy para los valores críticos de las pruebas estadísticas. No usa Tkinter.

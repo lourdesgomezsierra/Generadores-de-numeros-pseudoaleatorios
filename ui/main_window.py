@@ -6,6 +6,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -15,8 +16,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,6 +35,11 @@ from generators import (
     GeneradorProductoMedio,
 )
 from generators.resultado import ResultadoGenerador
+from statistics_tests import (
+    calcular_chi_cuadrado,
+    calcular_correlacion_serial,
+    generar_scatter,
+)
 
 CANTIDAD_GENERADA = 1000
 
@@ -67,6 +75,7 @@ class MainWindow(QMainWindow):
         self.metodo_actual: DefinicionMetodo | None = None
         self.resultado_actual: ResultadoGenerador | None = None
         self.entradas: dict[str, QLineEdit | QComboBox] = {}
+        self.alerta_scipy_mostrada = False
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -243,6 +252,9 @@ class MainWindow(QMainWindow):
         barra = QHBoxLayout()
         self.titulo_metodo = QLabel()
         self.titulo_metodo.setObjectName("titulo")
+        boton_pruebas = QPushButton("Pruebas estadísticas")
+        boton_pruebas.setObjectName("secundario")
+        boton_pruebas.clicked.connect(self._abrir_pruebas_estadisticas)
         boton_cambiar = QPushButton("Cambiar método")
         boton_cambiar.setObjectName("secundario")
         boton_cambiar.clicked.connect(self._volver_categoria)
@@ -251,6 +263,7 @@ class MainWindow(QMainWindow):
         boton_menu.clicked.connect(self._volver_inicio)
         barra.addWidget(self.titulo_metodo)
         barra.addStretch()
+        barra.addWidget(boton_pruebas)
         barra.addWidget(boton_cambiar)
         barra.addWidget(boton_menu)
         layout.addLayout(barra)
@@ -336,10 +349,294 @@ class MainWindow(QMainWindow):
 
         self.figura = Figure(figsize=(6, 3), dpi=100)
         self.canvas = FigureCanvas(self.figura)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.canvas, stretch=2)
+        self._dibujar_histograma([])
+        return panel
+
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        divisor_vertical = QSplitter(Qt.Orientation.Vertical)
+        divisor_vertical.setChildrenCollapsible(False)
+        layout.addWidget(divisor_vertical)
+
+        divisor_vertical.addWidget(self._crear_seccion_resultados_generacion())
+        divisor_vertical.addWidget(self._crear_seccion_histograma())
+        divisor_vertical.addWidget(self._crear_panel_pruebas_estadisticas())
+        divisor_vertical.setSizes([260, 270, 340])
+        return panel
+
+    def _crear_seccion_resultados_generacion(self) -> QFrame:
+        seccion = QFrame()
+        seccion.setObjectName("panelSecundario")
+        layout = QVBoxLayout(seccion)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        titulo = QLabel("Resultados generados")
+        titulo.setObjectName("seccion")
+        layout.addWidget(titulo)
+
+        resumen = QHBoxLayout()
+        self.parametros_label = QLabel("Parámetros: -")
+        self.parametros_label.setWordWrap(True)
+        self.advertencias_label = QLabel("Advertencias: sin datos generados.")
+        self.advertencias_label.setWordWrap(True)
+        resumen.addWidget(self.parametros_label, 1)
+        resumen.addWidget(self.advertencias_label, 1)
+        layout.addLayout(resumen)
+
+        self.tabla = QTableWidget(0, 0)
+        self.tabla.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.tabla.setAlternatingRowColors(True)
+        self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.verticalHeader().setDefaultSectionSize(28)
+        layout.addWidget(self.tabla, stretch=1)
+        return seccion
+
+    def _crear_seccion_histograma(self) -> QFrame:
+        seccion = QFrame()
+        seccion.setObjectName("panelSecundario")
+        layout = QVBoxLayout(seccion)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(8)
+
+        titulo = QLabel("Histograma principal")
+        titulo.setObjectName("seccion")
+        layout.addWidget(titulo)
+
+        self.figura = Figure(figsize=(9, 3.8), dpi=100)
+        self.canvas = FigureCanvas(self.figura)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.canvas, stretch=1)
+        self._dibujar_histograma([])
+        return seccion
+
+    def _crear_panel_resultados_anterior(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        resumen = QHBoxLayout()
+        self.parametros_label = QLabel("Parámetros: -")
+        self.parametros_label.setWordWrap(True)
+        self.advertencias_label = QLabel("Advertencias: sin datos generados.")
+        self.advertencias_label.setWordWrap(True)
+        resumen.addWidget(self.parametros_label, 1)
+        resumen.addWidget(self.advertencias_label, 1)
+        layout.addLayout(resumen)
+
+        self.tabla = QTableWidget(0, 0)
+        self.tabla.setAlternatingRowColors(True)
+        self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.verticalHeader().setDefaultSectionSize(28)
+        layout.addWidget(self.tabla, stretch=3)
+
+        self.figura = Figure(figsize=(6, 3), dpi=100)
+        self.canvas = FigureCanvas(self.figura)
         layout.addWidget(self.canvas, stretch=2)
         self._dibujar_histograma([])
 
+        layout.addWidget(self._crear_panel_pruebas_estadisticas(), stretch=3)
+
         return panel
+
+    def _crear_panel_pruebas_estadisticas(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panelSecundario")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        encabezado = QHBoxLayout()
+        titulo = QLabel("Pruebas estadísticas")
+        titulo.setObjectName("seccion")
+        descripcion = QLabel("χ²: uniformidad | Correlación serial: independencia")
+        descripcion.setObjectName("ayuda")
+        descripcion.setToolTip("χ² evalúa uniformidad. Correlación serial evalúa independencia entre Ui y Ui+h.")
+        self.alpha_pruebas = QLineEdit("0.05")
+        self.alpha_pruebas.setFixedWidth(80)
+        self.alpha_pruebas.setToolTip("Nivel de significación α. Valor por defecto: 0.05.")
+        self.alpha_pruebas.editingFinished.connect(self._actualizar_pruebas_estadisticas)
+
+        encabezado.addWidget(titulo)
+        encabezado.addWidget(descripcion)
+        encabezado.addStretch()
+        encabezado.addWidget(QLabel("α"))
+        encabezado.addWidget(self.alpha_pruebas)
+        boton_volver = QPushButton("Volver atrás")
+        boton_volver.setObjectName("secundario")
+        boton_volver.clicked.connect(self.close)
+        encabezado.addWidget(boton_volver)
+        layout.addLayout(encabezado)
+
+        self.advertencia_pruebas = QLabel("Genere una serie para calcular las pruebas.")
+        self.advertencia_pruebas.setObjectName("ayuda")
+        self.advertencia_pruebas.setWordWrap(True)
+        layout.addWidget(self.advertencia_pruebas)
+
+        self.tabs_pruebas = QTabWidget()
+        self.tabs_pruebas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.tabs_pruebas.addTab(self._crear_tab_chi(), "Chi-Cuadrado")
+        self.tabs_pruebas.addTab(self._crear_tab_correlacion(), "Correlación Serial")
+        self.tabs_pruebas.addTab(self._crear_tab_resumen(), "Resumen")
+        layout.addWidget(self.tabs_pruebas, stretch=1)
+
+        self._dibujar_grafico_chi([], 0)
+        self._dibujar_scatter([])
+        return panel
+
+    def _crear_tab_chi(self) -> QWidget:
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+
+        bloque_tabla = QVBoxLayout()
+        self.estado_chi = QLabel("χ²: pendiente")
+        self.estado_chi.setObjectName("ayuda")
+        self.resumen_chi = QLabel("χ² calculado: - | χ² tabla: -")
+        self.resumen_chi.setObjectName("ayuda")
+        self.tabla_chi = QTableWidget(0, 0)
+        self._configurar_tabla_prueba(self.tabla_chi)
+        bloque_tabla.addWidget(self.estado_chi)
+        bloque_tabla.addWidget(self.resumen_chi)
+        bloque_tabla.addWidget(self.tabla_chi, stretch=1)
+
+        self.figura_chi = Figure(figsize=(5.5, 3.2), dpi=100)
+        self.canvas_chi = FigureCanvas(self.figura_chi)
+        self.canvas_chi.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        layout.addLayout(bloque_tabla, 3)
+        layout.addWidget(self.canvas_chi, 2)
+        return tab
+
+    def _crear_tab_correlacion(self) -> QWidget:
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+
+        bloque_tabla = QVBoxLayout()
+        self.estado_correlacion = QLabel("Correlación serial: pendiente")
+        self.estado_correlacion.setObjectName("ayuda")
+        self.tabla_correlacion = QTableWidget(0, 0)
+        self._configurar_tabla_prueba(self.tabla_correlacion)
+        bloque_tabla.addWidget(self.estado_correlacion)
+        bloque_tabla.addWidget(self.tabla_correlacion, stretch=1)
+
+        self.figura_scatter = Figure(figsize=(5.5, 3.2), dpi=100)
+        self.canvas_scatter = FigureCanvas(self.figura_scatter)
+        self.canvas_scatter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        layout.addLayout(bloque_tabla, 2)
+        layout.addWidget(self.canvas_scatter, 3)
+        return tab
+
+    def _crear_tab_resumen(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        self.resumen_estadistico_label = QLabel("Genere una serie para ver el resumen.")
+        self.resumen_estadistico_label.setWordWrap(True)
+        self.resumen_estadistico_label.setObjectName("ayuda")
+        self.conclusion_estadistica_label = QLabel("Conclusión: pendiente")
+        self.conclusion_estadistica_label.setWordWrap(True)
+        self.conclusion_estadistica_label.setObjectName("ayuda")
+
+        layout.addWidget(self.resumen_estadistico_label)
+        layout.addWidget(self.conclusion_estadistica_label)
+        layout.addStretch()
+        return tab
+
+    def _crear_panel_pruebas_estadisticas_anterior(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panelSecundario")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        encabezado = QHBoxLayout()
+        titulo = QLabel("Pruebas estadísticas")
+        titulo.setObjectName("seccion")
+        descripcion = QLabel("χ²: uniformidad | Correlación serial: independencia")
+        descripcion.setObjectName("ayuda")
+        descripcion.setToolTip("χ² evalúa uniformidad. Correlación serial evalúa independencia entre Ui y Ui+h.")
+        self.alpha_pruebas = QLineEdit("0.05")
+        self.alpha_pruebas.setFixedWidth(80)
+        self.alpha_pruebas.setToolTip("Nivel de significación α. Valor por defecto: 0.05.")
+        self.alpha_pruebas.editingFinished.connect(self._actualizar_pruebas_estadisticas)
+
+        encabezado.addWidget(titulo)
+        encabezado.addWidget(descripcion)
+        encabezado.addStretch()
+        encabezado.addWidget(QLabel("α"))
+        encabezado.addWidget(self.alpha_pruebas)
+        boton_volver = QPushButton("Volver atrás")
+        boton_volver.setObjectName("secundario")
+        boton_volver.clicked.connect(self.close)
+        encabezado.addWidget(boton_volver)
+        layout.addLayout(encabezado)
+
+        self.advertencia_pruebas = QLabel("Genere una serie para calcular las pruebas.")
+        self.advertencia_pruebas.setObjectName("ayuda")
+        self.advertencia_pruebas.setWordWrap(True)
+        layout.addWidget(self.advertencia_pruebas)
+
+        cuerpo = QHBoxLayout()
+        cuerpo.setSpacing(12)
+        layout.addLayout(cuerpo)
+
+        bloque_chi = QVBoxLayout()
+        self.estado_chi = QLabel("χ²: pendiente")
+        self.estado_chi.setObjectName("ayuda")
+        self.resumen_chi = QLabel("χ² calculado: - | χ² tabla: -")
+        self.resumen_chi.setObjectName("ayuda")
+        self.tabla_chi = QTableWidget(0, 0)
+        self._configurar_tabla_prueba(self.tabla_chi)
+        self.figura_chi = Figure(figsize=(4.3, 2.25), dpi=100)
+        self.canvas_chi = FigureCanvas(self.figura_chi)
+        bloque_chi.addWidget(self.estado_chi)
+        bloque_chi.addWidget(self.resumen_chi)
+        bloque_chi.addWidget(self.tabla_chi, stretch=2)
+        bloque_chi.addWidget(self.canvas_chi, stretch=1)
+
+        bloque_correlacion = QVBoxLayout()
+        self.estado_correlacion = QLabel("Correlación serial: pendiente")
+        self.estado_correlacion.setObjectName("ayuda")
+        self.tabla_correlacion = QTableWidget(0, 0)
+        self._configurar_tabla_prueba(self.tabla_correlacion)
+        self.figura_scatter = Figure(figsize=(4.3, 2.25), dpi=100)
+        self.canvas_scatter = FigureCanvas(self.figura_scatter)
+        bloque_correlacion.addWidget(self.estado_correlacion)
+        bloque_correlacion.addWidget(self.tabla_correlacion, stretch=2)
+        bloque_correlacion.addWidget(self.canvas_scatter, stretch=1)
+
+        cuerpo.addLayout(bloque_chi, 1)
+        cuerpo.addLayout(bloque_correlacion, 1)
+
+        self._dibujar_grafico_chi([], 0)
+        self._dibujar_scatter([])
+        return panel
+
+    def _configurar_tabla_prueba(self, tabla: QTableWidget) -> None:
+        tabla.setAlternatingRowColors(True)
+        tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        tabla.verticalHeader().setVisible(False)
+        tabla.verticalHeader().setDefaultSectionSize(24)
 
     def _crear_tarjeta_menu(self, titulo: str, descripcion: str, accion: Callable[[], None]) -> QFrame:
         tarjeta = QFrame()
@@ -504,9 +801,227 @@ class MainWindow(QMainWindow):
         self.figura.tight_layout()
         self.canvas.draw()
 
+    def _actualizar_pruebas_estadisticas(self) -> None:
+        if self.resultado_actual is None:
+            return
+
+        self._actualizar_resumen_estadistico(None, None)
+        try:
+            alpha = self._leer_alpha()
+            if not self._scipy_disponible():
+                self._mostrar_error_scipy()
+                self._limpiar_resultados_pruebas()
+                return
+            resultado_chi = calcular_chi_cuadrado(self.resultado_actual.valores_u, alpha)
+            resultado_correlacion = calcular_correlacion_serial(self.resultado_actual.valores_u, alpha)
+        except ValueError as error:
+            self.advertencia_pruebas.setText(str(error))
+            self._limpiar_tabla(self.tabla_chi)
+            self._limpiar_tabla(self.tabla_correlacion)
+            self._dibujar_grafico_chi([], 0)
+            self._dibujar_scatter([])
+            self.resumen_chi.setText("χ² calculado: - | χ² tabla: -")
+            self.estado_chi.setText("χ²: no calculado")
+            self.estado_correlacion.setText("Correlación serial: no calculada")
+            self._aplicar_estado_label(self.estado_chi, False)
+            self._aplicar_estado_label(self.estado_correlacion, False)
+            return
+
+        if self._serie_no_representativa(self.resultado_actual):
+            self.advertencia_pruebas.setText(
+                "La serie presenta degeneración o período corto; los resultados estadísticos pueden no ser representativos."
+            )
+        else:
+            self.advertencia_pruebas.setText("Pruebas calculadas con la serie Ui generada.")
+
+        self._cargar_tabla_generica(self.tabla_chi, resultado_chi.encabezados, resultado_chi.filas)
+        self.resumen_chi.setText(
+            f"χ² calculado: {resultado_chi.chi_calculado:.6f} | χ² tabla: {resultado_chi.chi_tabla:.6f}"
+        )
+        self.estado_chi.setText(f"χ²: {resultado_chi.decision}")
+        self._aplicar_estado_label(self.estado_chi, resultado_chi.acepta_h0)
+        self._dibujar_grafico_chi(self.resultado_actual.valores_u, resultado_chi.frecuencia_esperada)
+
+        self._cargar_tabla_generica(self.tabla_correlacion, resultado_correlacion.encabezados, resultado_correlacion.filas)
+        correlacion_aprobada = all(fila[-1] == "pasa" for fila in resultado_correlacion.filas)
+        self.estado_correlacion.setText(
+            "Correlación serial: se acepta H0 en h = 1, 2 y 3"
+            if correlacion_aprobada
+            else "Correlación serial: al menos un h rechaza H0"
+        )
+        self._aplicar_estado_label(self.estado_correlacion, correlacion_aprobada)
+        self._dibujar_scatter(self.resultado_actual.valores_u)
+        self._actualizar_resumen_estadistico(resultado_chi.acepta_h0, correlacion_aprobada)
+
+    def _scipy_disponible(self) -> bool:
+        try:
+            import scipy
+            import scipy.stats
+        except ModuleNotFoundError:
+            return False
+        return True
+
+    def _mostrar_error_scipy(self) -> None:
+        self.advertencia_pruebas.setText("SciPy no está instalado. Las pruebas estadísticas quedan pendientes.")
+        if self.alerta_scipy_mostrada:
+            return
+        self.alerta_scipy_mostrada = True
+        QMessageBox.warning(self, "Falta SciPy", "Instale scipy con: pip install scipy")
+
+    def _limpiar_resultados_pruebas(self) -> None:
+        self._limpiar_tabla(self.tabla_chi)
+        self._limpiar_tabla(self.tabla_correlacion)
+        self._dibujar_grafico_chi([], 0)
+        self._dibujar_scatter([])
+        self.resumen_chi.setText("χ² calculado: - | χ² tabla: -")
+        self.estado_chi.setText("χ²: no calculado")
+        self.estado_correlacion.setText("Correlación serial: no calculada")
+        self._aplicar_estado_label(self.estado_chi, False)
+        self._aplicar_estado_label(self.estado_correlacion, False)
+
+    def _actualizar_resumen_estadistico(self, chi_aprobado: bool | None, correlacion_aprobada: bool | None) -> None:
+        if self.resultado_actual is None:
+            self.resumen_estadistico_label.setText("Genere una serie para ver el resumen.")
+            self.conclusion_estadistica_label.setText("Conclusión: pendiente")
+            self.conclusion_estadistica_label.setStyleSheet("")
+            return
+
+        valores = self.resultado_actual.valores_u
+        media = sum(valores) / len(valores)
+        varianza = sum((valor - media) ** 2 for valor in valores) / len(valores)
+        periodo = self._periodo_estimado(valores)
+        degeneracion = self._tiene_degeneracion(self.resultado_actual)
+        periodo_texto = str(periodo) if periodo is not None else "no detectado en la muestra"
+
+        self.resumen_estadistico_label.setText(
+            f"Media: {media:.6f}\n"
+            f"Varianza: {varianza:.6f}\n"
+            f"Período estimado: {periodo_texto}\n"
+            f"Degeneración detectada: {'sí' if degeneracion else 'no'}"
+        )
+
+        if chi_aprobado is None or correlacion_aprobada is None:
+            self.conclusion_estadistica_label.setText("Conclusión: pendiente de pruebas estadísticas.")
+            self.conclusion_estadistica_label.setStyleSheet("")
+            return
+
+        buena_calidad = chi_aprobado and correlacion_aprobada and not self._serie_no_representativa(self.resultado_actual)
+        self.conclusion_estadistica_label.setText(
+            "Conclusión: La serie presenta buena calidad estadística"
+            if buena_calidad
+            else "Conclusión: La serie presenta mala calidad estadística"
+        )
+        self._aplicar_estado_label(self.conclusion_estadistica_label, buena_calidad)
+
+    def _periodo_estimado(self, valores: list[float]) -> int | None:
+        vistos: dict[float, int] = {}
+        for indice, valor in enumerate(valores):
+            if valor in vistos:
+                return indice - vistos[valor]
+            vistos[valor] = indice
+        return None
+
+    def _tiene_degeneracion(self, resultado: ResultadoGenerador) -> bool:
+        return "degener" in " ".join(resultado.advertencias).lower()
+
+    def _leer_alpha(self) -> float:
+        texto = self.alpha_pruebas.text().strip().replace(",", ".")
+        if not texto:
+            raise ValueError("Ingrese un valor para α.")
+        try:
+            return float(texto)
+        except ValueError as exc:
+            raise ValueError("α debe ser un valor numérico decimal.") from exc
+
+    def _cargar_tabla_generica(self, tabla: QTableWidget, encabezados: list[str], filas: list[list[str]]) -> None:
+        tabla.clear()
+        tabla.setColumnCount(len(encabezados))
+        tabla.setRowCount(len(filas))
+        tabla.setHorizontalHeaderLabels(encabezados)
+
+        for fila_indice, fila in enumerate(filas):
+            for columna_indice, valor in enumerate(fila):
+                item = QTableWidgetItem(valor)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                tabla.setItem(fila_indice, columna_indice, item)
+
+        encabezado = tabla.horizontalHeader()
+        encabezado.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        encabezado.setStretchLastSection(True)
+
+    def _limpiar_tabla(self, tabla: QTableWidget) -> None:
+        tabla.clear()
+        tabla.setRowCount(0)
+        tabla.setColumnCount(0)
+
+    def _aplicar_estado_label(self, label: QLabel, aprobado: bool) -> None:
+        color_fondo = "#dcefe7" if aprobado else "#fde2df"
+        color_texto = "#1f6f4a" if aprobado else "#9f2d24"
+        label.setStyleSheet(
+            f"background: {color_fondo}; color: {color_texto}; border-radius: 8px; padding: 7px; font-weight: 700;"
+        )
+
+    def _serie_no_representativa(self, resultado: ResultadoGenerador) -> bool:
+        texto_advertencias = " ".join(resultado.advertencias).lower()
+        if "degener" in texto_advertencias or "ciclo" in texto_advertencias:
+            return True
+        return len(set(resultado.valores_u)) < min(100, len(resultado.valores_u) // 2)
+
+    def _dibujar_grafico_chi(self, valores: list[float], frecuencia_esperada: float) -> None:
+        self.figura_chi.clear()
+        eje = self.figura_chi.add_subplot(111)
+        eje.set_title("Frecuencias observadas vs esperadas")
+        eje.set_xlabel("Intervalos")
+        eje.set_ylabel("Frecuencia")
+        eje.grid(axis="y", alpha=0.25)
+
+        if valores:
+            frecuencias = [0] * 10
+            for valor in valores:
+                indice = min(int(valor * 10), 9)
+                frecuencias[indice] += 1
+            posiciones = list(range(10))
+            eje.bar(posiciones, frecuencias, color="#2f7d7e", edgecolor="#172026")
+            eje.axhline(frecuencia_esperada, color="#d96c5f", linewidth=2, label="Frecuencia esperada")
+            eje.set_xticks(posiciones)
+            eje.set_xticklabels([f"{i / 10:.1f}" for i in posiciones])
+            eje.legend(loc="upper right", fontsize=8)
+        else:
+            eje.text(0.5, 0.5, "Sin datos", ha="center", va="center", color="#6b7680")
+
+        self.figura_chi.tight_layout()
+        self.canvas_chi.draw()
+
+    def _dibujar_scatter(self, valores: list[float]) -> None:
+        self.figura_scatter.clear()
+        eje = self.figura_scatter.add_subplot(111)
+        eje.set_title("Scatter Ui vs Ui+1")
+        eje.set_xlabel("Ui")
+        eje.set_ylabel("Ui+1")
+        eje.set_xlim(0, 1)
+        eje.set_ylim(0, 1)
+        eje.grid(alpha=0.25)
+
+        if len(valores) > 1:
+            x, y = generar_scatter(valores)
+            eje.scatter(x, y, s=10, alpha=0.55, color="#2f7d7e", edgecolors="none")
+        else:
+            eje.text(0.5, 0.5, "Sin datos", ha="center", va="center", color="#6b7680")
+
+        self.figura_scatter.tight_layout()
+        self.canvas_scatter.draw()
+
     def _actualizar_tabla_desde_selector(self) -> None:
         if self.resultado_actual:
             self._cargar_tabla(self.resultado_actual)
+
+    def _abrir_pruebas_estadisticas(self) -> None:
+        if self.resultado_actual is None:
+            QMessageBox.information(self, "Sin serie generada", "Primero genere una serie para calcular las pruebas estadísticas.")
+            return
+
+        dialogo = PruebasEstadisticasDialog(self.resultado_actual, self)
+        dialogo.exec()
 
     def _limpiar(self) -> None:
         if self.metodo_actual:
@@ -521,6 +1036,24 @@ class MainWindow(QMainWindow):
         self.tabla.setRowCount(0)
         self.tabla.setColumnCount(0)
         self._dibujar_histograma([])
+        if not hasattr(self, "advertencia_pruebas"):
+            return
+        self.advertencia_pruebas.setText("Genere una serie para calcular las pruebas.")
+        self.estado_chi.setText("χ²: pendiente")
+        self.estado_chi.setStyleSheet("")
+        self.resumen_chi.setText("χ² calculado: - | χ² tabla: -")
+        self.estado_correlacion.setText("Correlación serial: pendiente")
+        self.estado_correlacion.setStyleSheet("")
+        self.estado_chi.setText("χ²: pendiente")
+        self.resumen_chi.setText("χ² calculado: - | χ² tabla: -")
+        self.estado_correlacion.setText("Correlación serial: pendiente")
+        self.resumen_estadistico_label.setText("Genere una serie para ver el resumen.")
+        self.conclusion_estadistica_label.setText("Conclusión: pendiente")
+        self.conclusion_estadistica_label.setStyleSheet("")
+        self._limpiar_tabla(self.tabla_chi)
+        self._limpiar_tabla(self.tabla_correlacion)
+        self._dibujar_grafico_chi([], 0)
+        self._dibujar_scatter([])
 
     def _volver_inicio(self) -> None:
         self.stack.setCurrentWidget(self.pantalla_inicio)
@@ -540,3 +1073,239 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
             if child_layout is not None:
                 self._vaciar_layout(child_layout)
+
+
+class PruebasEstadisticasDialog(QDialog):
+    def __init__(self, resultado: ResultadoGenerador, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.resultado = resultado
+        self.setWindowTitle("Pruebas estadísticas")
+        self.resize(1050, 720)
+        self.setMinimumSize(850, 560)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        encabezado = QHBoxLayout()
+        titulo = QLabel("Pruebas estadísticas")
+        titulo.setObjectName("titulo")
+        descripcion = QLabel("χ²: uniformidad | Correlación serial: independencia")
+        descripcion.setObjectName("ayuda")
+        descripcion.setToolTip("χ² evalúa uniformidad. Correlación serial evalúa independencia entre Ui y Ui+h.")
+        self.alpha_pruebas = QLineEdit("0.05")
+        self.alpha_pruebas.setFixedWidth(90)
+        self.alpha_pruebas.editingFinished.connect(self._actualizar_pruebas)
+        encabezado.addWidget(titulo)
+        encabezado.addWidget(descripcion)
+        encabezado.addStretch()
+        encabezado.addWidget(QLabel("α"))
+        encabezado.addWidget(self.alpha_pruebas)
+        boton_volver = QPushButton("Volver atrás")
+        boton_volver.setObjectName("secundario")
+        boton_volver.clicked.connect(self.close)
+        encabezado.addWidget(boton_volver)
+        layout.addLayout(encabezado)
+
+        self.mensaje = QLabel("Pruebas calculadas con la serie Ui generada.")
+        self.mensaje.setObjectName("ayuda")
+        self.mensaje.setWordWrap(True)
+        layout.addWidget(self.mensaje)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._crear_tab_uniformidad(), "Uniformidad")
+        self.tabs.addTab(self._crear_tab_independencia(), "Independencia")
+        self.tabs.addTab(self._crear_tab_resumen(), "Resumen")
+        layout.addWidget(self.tabs, stretch=1)
+
+        self._actualizar_pruebas()
+
+    def _crear_tab_uniformidad(self) -> QWidget:
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(14)
+
+        bloque = QVBoxLayout()
+        self.estado_chi = QLabel("χ²: pendiente")
+        self.estado_chi.setObjectName("ayuda")
+        self.resumen_chi = QLabel("χ² calculado: - | χ² tabla: -")
+        self.resumen_chi.setObjectName("ayuda")
+        self.tabla_chi = QTableWidget(0, 0)
+        self._configurar_tabla(self.tabla_chi)
+        bloque.addWidget(self.estado_chi)
+        bloque.addWidget(self.resumen_chi)
+        bloque.addWidget(self.tabla_chi, stretch=1)
+
+        self.figura_chi = Figure(figsize=(5.8, 4.2), dpi=100)
+        self.canvas_chi = FigureCanvas(self.figura_chi)
+        self.canvas_chi.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        layout.addLayout(bloque, 3)
+        layout.addWidget(self.canvas_chi, 2)
+        return tab
+
+    def _crear_tab_independencia(self) -> QWidget:
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(14)
+
+        bloque = QVBoxLayout()
+        self.estado_correlacion = QLabel("Correlación serial: pendiente")
+        self.estado_correlacion.setObjectName("ayuda")
+        self.tabla_correlacion = QTableWidget(0, 0)
+        self._configurar_tabla(self.tabla_correlacion)
+        bloque.addWidget(self.estado_correlacion)
+        bloque.addWidget(self.tabla_correlacion, stretch=1)
+
+        self.figura_scatter = Figure(figsize=(6.2, 4.2), dpi=100)
+        self.canvas_scatter = FigureCanvas(self.figura_scatter)
+        self.canvas_scatter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        layout.addLayout(bloque, 2)
+        layout.addWidget(self.canvas_scatter, 3)
+        return tab
+
+    def _crear_tab_resumen(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        self.resumen_estadistico = QLabel()
+        self.resumen_estadistico.setObjectName("ayuda")
+        self.resumen_estadistico.setWordWrap(True)
+        self.conclusion = QLabel()
+        self.conclusion.setObjectName("ayuda")
+        self.conclusion.setWordWrap(True)
+        layout.addWidget(self.resumen_estadistico)
+        layout.addWidget(self.conclusion)
+        layout.addStretch()
+        return tab
+
+    def _configurar_tabla(self, tabla: QTableWidget) -> None:
+        tabla.setAlternatingRowColors(True)
+        tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        tabla.verticalHeader().setVisible(False)
+        tabla.verticalHeader().setDefaultSectionSize(26)
+
+    def _actualizar_pruebas(self) -> None:
+        if not self._scipy_disponible():
+            QMessageBox.warning(self, "Falta SciPy", "Instale scipy con: pip install scipy")
+            self.mensaje.setText("SciPy no está instalado. Las pruebas estadísticas quedan pendientes.")
+            return
+
+        try:
+            alpha = float(self.alpha_pruebas.text().strip().replace(",", "."))
+            resultado_chi = calcular_chi_cuadrado(self.resultado.valores_u, alpha)
+            resultado_correlacion = calcular_correlacion_serial(self.resultado.valores_u, alpha)
+        except ValueError as error:
+            self.mensaje.setText(str(error))
+            return
+
+        self._cargar_tabla(self.tabla_chi, resultado_chi.encabezados, resultado_chi.filas)
+        self.resumen_chi.setText(f"χ² calculado: {resultado_chi.chi_calculado:.6f} | χ² tabla: {resultado_chi.chi_tabla:.6f}")
+        self.estado_chi.setText(f"χ²: {resultado_chi.decision}")
+        self._aplicar_estado(self.estado_chi, resultado_chi.acepta_h0)
+        self._dibujar_grafico_chi(resultado_chi.frecuencia_esperada)
+
+        self._cargar_tabla(self.tabla_correlacion, resultado_correlacion.encabezados, resultado_correlacion.filas)
+        correlacion_aprobada = all(fila[-1] == "pasa" for fila in resultado_correlacion.filas)
+        self.estado_correlacion.setText(
+            "Correlación serial: se acepta H0 en h = 1, 2 y 3"
+            if correlacion_aprobada
+            else "Correlación serial: al menos un h rechaza H0"
+        )
+        self._aplicar_estado(self.estado_correlacion, correlacion_aprobada)
+        self._dibujar_scatter()
+        self._actualizar_resumen(resultado_chi.acepta_h0, correlacion_aprobada)
+
+    def _scipy_disponible(self) -> bool:
+        try:
+            import scipy
+            import scipy.stats
+        except ModuleNotFoundError:
+            return False
+        return True
+
+    def _cargar_tabla(self, tabla: QTableWidget, encabezados: list[str], filas: list[list[str]]) -> None:
+        tabla.clear()
+        tabla.setColumnCount(len(encabezados))
+        tabla.setRowCount(len(filas))
+        tabla.setHorizontalHeaderLabels(encabezados)
+        for fila_indice, fila in enumerate(filas):
+            for columna_indice, valor in enumerate(fila):
+                item = QTableWidgetItem(valor)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                tabla.setItem(fila_indice, columna_indice, item)
+        tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        tabla.horizontalHeader().setStretchLastSection(True)
+
+    def _dibujar_grafico_chi(self, frecuencia_esperada: float) -> None:
+        self.figura_chi.clear()
+        eje = self.figura_chi.add_subplot(111)
+        frecuencias = [0] * 10
+        for valor in self.resultado.valores_u:
+            frecuencias[min(int(valor * 10), 9)] += 1
+        posiciones = list(range(10))
+        eje.bar(posiciones, frecuencias, color="#2f7d7e", edgecolor="#172026")
+        eje.axhline(frecuencia_esperada, color="#d96c5f", linewidth=2, label="Frecuencia esperada")
+        eje.set_title("Frecuencias observadas vs esperadas")
+        eje.set_xlabel("Intervalos")
+        eje.set_ylabel("Frecuencia")
+        eje.set_xticks(posiciones)
+        eje.grid(axis="y", alpha=0.25)
+        eje.legend(loc="upper right", fontsize=8)
+        self.figura_chi.tight_layout()
+        self.canvas_chi.draw()
+
+    def _dibujar_scatter(self) -> None:
+        self.figura_scatter.clear()
+        eje = self.figura_scatter.add_subplot(111)
+        x, y = generar_scatter(self.resultado.valores_u)
+        eje.scatter(x, y, s=10, alpha=0.55, color="#2f7d7e", edgecolors="none")
+        eje.set_title("Scatter Ui vs Ui+1")
+        eje.set_xlabel("Ui")
+        eje.set_ylabel("Ui+1")
+        eje.set_xlim(0, 1)
+        eje.set_ylim(0, 1)
+        eje.grid(alpha=0.25)
+        self.figura_scatter.tight_layout()
+        self.canvas_scatter.draw()
+
+    def _actualizar_resumen(self, chi_aprobado: bool, correlacion_aprobada: bool) -> None:
+        valores = self.resultado.valores_u
+        media = sum(valores) / len(valores)
+        varianza = sum((valor - media) ** 2 for valor in valores) / len(valores)
+        periodo = self._periodo_estimado(valores)
+        degeneracion = "degener" in " ".join(self.resultado.advertencias).lower()
+        periodo_texto = str(periodo) if periodo is not None else "no detectado en la muestra"
+        self.resumen_estadistico.setText(
+            f"Media: {media:.6f}\n"
+            f"Varianza: {varianza:.6f}\n"
+            f"Período estimado: {periodo_texto}\n"
+            f"Degeneración detectada: {'sí' if degeneracion else 'no'}"
+        )
+        buena = chi_aprobado and correlacion_aprobada and not degeneracion
+        self.conclusion.setText(
+            "Conclusión: La serie presenta buena calidad estadística"
+            if buena
+            else "Conclusión: La serie presenta mala calidad estadística"
+        )
+        self._aplicar_estado(self.conclusion, buena)
+
+    def _periodo_estimado(self, valores: list[float]) -> int | None:
+        vistos: dict[float, int] = {}
+        for indice, valor in enumerate(valores):
+            if valor in vistos:
+                return indice - vistos[valor]
+            vistos[valor] = indice
+        return None
+
+    def _aplicar_estado(self, label: QLabel, aprobado: bool) -> None:
+        color_fondo = "#dcefe7" if aprobado else "#fde2df"
+        color_texto = "#1f6f4a" if aprobado else "#9f2d24"
+        label.setStyleSheet(
+            f"background: {color_fondo}; color: {color_texto}; border-radius: 8px; padding: 7px; font-weight: 700;"
+        )

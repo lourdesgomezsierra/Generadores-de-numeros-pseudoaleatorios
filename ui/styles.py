@@ -34,6 +34,12 @@ QFrame#tarjeta, QFrame#panel {
     border-radius: 12px;
 }
 
+QFrame#panelSecundario {
+    background: #fbfcfc;
+    border: 1px solid #dde4e8;
+    border-radius: 10px;
+}
+
 QPushButton {
     background: #2f7d7e;
     border: 0;
@@ -74,6 +80,27 @@ QLineEdit, QComboBox {
 
 QLineEdit:focus, QComboBox:focus {
     border: 1px solid #2f7d7e;
+}
+
+QTabWidget::pane {
+    border: 1px solid #dde4e8;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+QTabBar::tab {
+    background: #e8eef1;
+    color: #25313a;
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
+    padding: 8px 14px;
+    margin-right: 3px;
+}
+
+QTabBar::tab:selected {
+    background: #2f7d7e;
+    color: #ffffff;
+    font-weight: 700;
 }
 
 QTableWidget {
