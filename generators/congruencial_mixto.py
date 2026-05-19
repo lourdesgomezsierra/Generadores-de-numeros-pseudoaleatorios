@@ -1,9 +1,9 @@
 from math import gcd
-
 from generators.resultado import ResultadoGenerador, detectar_estado_repetido, validar_entero
 
 
 def factores_primos(numero: int) -> list[int]:
+    """Obtiene los factores primos únicos de un número"""
     factores: list[int] = []
     divisor = 2
     while divisor * divisor <= numero:
@@ -18,6 +18,8 @@ def factores_primos(numero: int) -> list[int]:
 
 
 class GeneradorCongruencialMixto:
+    """Congruencia Lineal Mixta: Xi+1 = (a*Xi + c) mod m"""
+    
     def __init__(self, semilla_x0: int, multiplicador: int, constante: int, modulo: int):
         self.semilla_x0 = semilla_x0
         self.multiplicador = multiplicador
@@ -26,6 +28,7 @@ class GeneradorCongruencialMixto:
 
     @staticmethod
     def validar(texto_x0: str, texto_a: str, texto_c: str, texto_m: str) -> tuple[int, int, int, int]:
+        """Valida parámetros: m > 1, 0 <= X0 < m, a > 0, 0 <= c < m"""
         x0 = validar_entero(texto_x0, "X0")
         a = validar_entero(texto_a, "Multiplicador a")
         c = validar_entero(texto_c, "Constante c")
@@ -44,6 +47,7 @@ class GeneradorCongruencialMixto:
 
     @staticmethod
     def validar_hull_dobell(multiplicador: int, constante: int, modulo: int) -> tuple[bool, list[str]]:
+        """Valida condiciones para período máximo: mcd(c,m)=1, (a-1) divisible por factores primos de m"""
         errores: list[str] = []
 
         if gcd(constante, modulo) != 1:
@@ -59,6 +63,7 @@ class GeneradorCongruencialMixto:
         return len(errores) == 0, errores
 
     def generar(self, cantidad: int = 1000) -> ResultadoGenerador:
+        """Genera números: Xi+1 = (a*Xi + c) mod m, luego normaliza Ui = Xi+1/m"""
         filas: list[list[str]] = []
         valores_u: list[float] = []
         advertencias: list[str] = []

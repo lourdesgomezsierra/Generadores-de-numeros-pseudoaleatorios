@@ -2,6 +2,7 @@ from generators.resultado import ResultadoGenerador, detectar_estado_repetido, v
 
 
 class GeneradorFibonacci:
+    """Fibonacci: Xi = (Xi-2 + Xi-1) mod m. Usa dos semillas iniciales"""
     def __init__(self, semilla_x0: int, semilla_x1: int, modulo: int):
         self.semilla_x0 = semilla_x0
         self.semilla_x1 = semilla_x1
@@ -9,6 +10,7 @@ class GeneradorFibonacci:
 
     @staticmethod
     def validar(texto_x0: str, texto_x1: str, texto_m: str) -> tuple[int, int, int]:
+        """Valida: m > 1, 0 <= X0,X1 < m, no ambas 0"""
         x0 = validar_entero(texto_x0, "X0")
         x1 = validar_entero(texto_x1, "X1")
         m = validar_entero(texto_m, "Módulo m")
@@ -23,29 +25,30 @@ class GeneradorFibonacci:
         return x0, x1, m
 
     def generar(self, cantidad: int = 1000) -> ResultadoGenerador:
+        """Genera: Xi = (Xi-2 + Xi-1) mod m, luego Ui = Xi/m. Detecta ciclos"""
         filas: list[list[str]] = []
         valores_u: list[float] = []
         advertencias: list[str] = []
         vistos: dict[int | tuple[int, ...], int] = {(self.semilla_x0, self.semilla_x1): 0}
-        anterior = self.semilla_x0
-        actual = self.semilla_x1
+        anterior = self.semilla_x0  # Xi-2
+        actual = self.semilla_x1    # Xi-1
         ciclo_reportado = False
 
         for indice in range(1, cantidad + 1):
-            siguiente = (anterior + actual) % self.modulo
-            ui = siguiente / self.modulo
+            siguiente = (anterior + actual) % self.modulo  # Xi = (Xi-2 + Xi-1) mod m
+            ui = siguiente / self.modulo  # Normaliza
 
             filas.append([str(indice), str(anterior), str(actual), str(siguiente), f"{ui:.6f}"])
             valores_u.append(ui)
 
-            estado = (actual, siguiente)
+            estado = (actual, siguiente)  # Tupla de últimas 2 semillas
             if not ciclo_reportado:
                 mensaje = detectar_estado_repetido(estado, vistos, indice)
                 if mensaje:
                     advertencias.append(mensaje)
                     ciclo_reportado = True
 
-            anterior, actual = actual, siguiente
+            anterior, actual = actual, siguiente  # Desplaza ventana
 
         return ResultadoGenerador(
             metodo="Fibonacci",
