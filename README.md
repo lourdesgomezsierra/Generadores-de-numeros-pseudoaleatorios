@@ -23,4 +23,4 @@ pip install PySide6 matplotlib numpy scipy
 python main.py
 ```
 
-La aplicación usa PySide6 para la interfaz, matplotlib para gráficos integrados y SciPy para los valores críticos de las pruebas estadísticas. No usa Tkinter.
+La aplicación usa PySide6 para la interfaz, matplotlib para gráficos integrados y SciPy para los valores críticos de las pruebas estadísticas. 
