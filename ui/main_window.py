@@ -794,7 +794,7 @@ class MainWindow(QMainWindow):
         eje.grid(axis="y", alpha=0.25)
 
         if valores:
-            eje.hist(valores, bins=10, range=(0, 1), color="#2f7d7e", edgecolor="#172026")
+            eje.hist(valores, bins=10, range=(0, 1), color="#a876e8", edgecolor="#172026")
         else:
             eje.text(0.5, 0.5, "Sin datos generados", ha="center", va="center", color="#6b7680")
 
